@@ -1,0 +1,92 @@
+version: '3.8'
+
+volumes:
+  db_data_wings:
+
+
+services:
+  databaseServer:
+    image: mariadb:10.5
+    restart: always
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - pterodactyl_nw
+      - pterodactyl
+      - wings0
+    volumes:
+      - db_data_wings:/var/lib/mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+
+  adminer:
+    image: adminer
+    ports:
+      - 8080
+    networks:
+      - pterodactyl
+    labels:
+      - "traefik.enable=${TRAEFIK_ENABLE}"
+      - "traefik.port=8080"
+      - "traefik.http.routers.adminer.rule=Host(`database.${URL_SUFIX}`)"
+      - "traefik.http.routers.adminer.entrypoints=websecure"
+      - "traefik.http.routers.adminer.tls=true"
+      - "traefik.http.routers.adminer.tls.certresolver=letsencrypt"
+
+  wings:
+    image: ghcr.io/pterodactyl/wings:latest
+    restart: always
+    networks:
+      - pterodactyl
+      - wings0
+    ports:
+      - "8080"
+      - "2022"
+    tty: true
+    environment:
+      TZ: "UTC"
+      WINGS_UID: 988
+      WINGS_GID: 988
+      WINGS_USERNAME: pterodactyl
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"
+      - "/var/lib/docker/containers/:/var/lib/docker/containers/"
+      - "/etc/pterodactyl/:/etc/pterodactyl/"
+      - "/var/lib/pterodactyl/:/var/lib/pterodactyl/"
+      - "/var/log/pterodactyl/:/var/log/pterodactyl/"
+      - "/tmp/pterodactyl/:/tmp/pterodactyl/"
+      - "/etc/ssl/certs:/etc/ssl/certs:ro"
+      # you may need /srv/daemon-data if you are upgrading from an old daemon
+      #- "/srv/daemon-data/:/srv/daemon-data/"
+      # - "/etc/letsencrypt/:/etc/letsencrypt/"
+    labels:
+      # HTTP
+      - "traefik.http.routers.pterodactyl_wings.entrypoints=web"
+      - "traefik.http.routers.pterodactyl_wings.rule=Host(`node.pterodactyl.${URL_SUFIX}`)"
+      - "traefik.http.routers.pterodactyl_wings.middlewares=wings_https"
+      - "traefik.http.middlewares.wings_https.redirectscheme.scheme=https"
+      # HTTPS
+      - "traefik.http.routers.pterodactyl_wings-https.entrypoints=websecure"
+      - "traefik.http.routers.pterodactyl_wings-https.rule=Host(`node.pterodactyl.${URL_SUFIX}`)"
+      - "traefik.http.routers.pterodactyl_wings-https.tls=true"
+      - "traefik.http.routers.pterodactyl_wings-https.tls.certresolver=letsencrypt"
+      - "traefik.http.services.pterodactyl_wings-https.loadbalancer.server.port=443"
+      # SFTP
+      - "traefik.enable=${TRAEFIK_ENABLE}"
+      - "traefik.tcp.routers.pterodactyl_wings.rule=HostSNI(`*`)"
+      - "traefik.tcp.routers.pterodactyl_wings.entrypoints=sftp"
+      - "traefik.tcp.routers.pterodactyl_wings.service=sftp"
+      - "traefik.tcp.services.pterodactyl_wings.loadbalancer.server.port=22"
+
+networks:
+  pterodactyl:
+    external: true
+  pterodactyl_nw:
+    external: true
+  wings0:
+    name: wings0
+    driver: bridge
+    ipam:
+      config:
+        - subnet: "172.21.0.0/16"
+    driver_opts:
+      com.docker.network.bridge.name: wings0
